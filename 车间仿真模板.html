@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>车间立体动画仿真 · 模板演示</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    overflow: hidden;
+    font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', -apple-system, sans-serif;
+    background: #0f1117;
+  }
+  #canvas-container { position: fixed; inset: 0; }
+  canvas { display: block; }
+
+  /* 顶部标题栏 */
+  #topbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 22px;
+    background: linear-gradient(180deg, rgba(15,17,23,.92), rgba(15,17,23,0));
+    pointer-events: none;
+  }
+  #topbar .title {
+    color: #fff; font-size: 18px; font-weight: 600; letter-spacing: .5px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  #topbar .title .dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: #34d399; box-shadow: 0 0 10px #34d399;
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  #topbar .stats {
+    display: flex; gap: 18px; color: #9ca3af; font-size: 13px;
+  }
+  #topbar .stats span b { color: #e5e7eb; font-weight: 600; }
+
+  /* 控制面板 */
+  #panel {
+    position: fixed; left: 20px; bottom: 20px; z-index: 10;
+    width: 270px;
+    background: rgba(24,27,36,.92);
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 14px;
+    padding: 16px;
+    color: #e5e7eb;
+    box-shadow: 0 12px 40px rgba(0,0,0,.45);
+  }
+  #panel .ph {
+    font-size: 13px; font-weight: 600; color: #fff;
+    margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
+  }
+  #panel .ph .ic { width: 16px; height: 16px; opacity: .8; }
+  .row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .row label { font-size: 13px; color: #9ca3af; }
+  .btn-group { display: flex; gap: 6px; }
+  .btn {
+    background: rgba(255,255,255,.06);
+    border: 1px solid rgba(255,255,255,.1);
+    color: #e5e7eb; border-radius: 8px;
+    padding: 7px 12px; font-size: 12px; cursor: pointer;
+    transition: all .15s; font-family: inherit;
+  }
+  .btn:hover { background: rgba(99,102,241,.25); border-color: #6366f1; }
+  .btn.active { background: #6366f1; border-color: #6366f1; color: #fff; }
+  .btn.play-btn { width: 100%; padding: 9px; font-size: 13px; font-weight: 600; }
+  .btn.play-btn.running { background: #dc2626; border-color: #dc2626; }
+
+  input[type=range] {
+    -webkit-appearance: none; width: 130px; height: 4px;
+    background: rgba(255,255,255,.15); border-radius: 4px; outline: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
+    background: #818cf8; cursor: pointer; border: 2px solid #fff;
+  }
+  .divider { height: 1px; background: rgba(255,255,255,.08); margin: 12px 0; }
+  .hint { font-size: 11px; color: #6b7280; line-height: 1.6; margin-top: 4px; }
+
+  /* 工位标签 */
+  .station-label {
+    position: absolute; pointer-events: none; z-index: 5;
+    background: rgba(15,17,23,.85);
+    border: 1px solid rgba(99,102,241,.5);
+    border-radius: 8px; padding: 5px 10px;
+    color: #fff; font-size: 12px; white-space: nowrap;
+    transform: translate(-50%, -130%);
+    transition: opacity .2s;
+  }
+  .station-label .num { color: #818cf8; font-weight: 600; margin-right: 4px; }
+
+  /* loading */
+  #loader {
+    position: fixed; inset: 0; z-index: 100;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: #0f1117; color: #9ca3af; gap: 16px;
+    transition: opacity .6s;
+  }
+  #loader .ring {
+    width: 44px; height: 44px; border-radius: 50%;
+    border: 3px solid rgba(255,255,255,.1);
+    border-top-color: #6366f1;
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #loader .ltxt { font-size: 14px; letter-spacing: 1px; }
+</style>
+</head>
+<body>
+
+<div id="loader">
+  <div class="ring"></div>
+  <div class="ltxt">正在加载车间场景…</div>
+</div>
+
+<div id="canvas-container"></div>
+
+<div id="topbar">
+  <div class="title"><span class="dot"></span>车间立体动画仿真 · 模板演示</div>
+  <div class="stats">
+    <span>工位 <b id="s-stations">5</b></span>
+    <span>产品 <b id="s-products">0</b></span>
+    <span>节拍 <b id="s-cycle">2.0s</b></span>
+    <span>FPS <b id="s-fps">60</b></span>
+  </div>
+</div>
+
+<div id="labels-layer"></div>
+
+<div id="panel">
+  <div class="ph">⚙ 仿真控制台</div>
+
+  <div class="row">
+    <label>播放状态</label>
+  </div>
+  <button class="btn play-btn running" id="btn-play">⏸ 暂停仿真</button>
+
+  <div class="divider"></div>
+
+  <div class="row">
+    <label>动画速度</label>
+    <div style="display:flex;align-items:center;gap:8px">
+      <input type="range" id="speed" min="0.1" max="3" step="0.1" value="1">
+      <span id="speed-val" style="font-size:12px;color:#818cf8;width:30px">1.0x</span>
+    </div>
+  </div>
+
+  <div class="row">
+    <label>传送带节拍</label>
+    <div style="display:flex;align-items:center;gap:8px">
+      <input type="range" id="cycle" min="1" max="6" step="0.5" value="2">
+      <span id="cycle-val" style="font-size:12px;color:#818cf8;width:30px">2.0s</span>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="row"><label>视角切换</label></div>
+  <div class="btn-group" style="display:flex;gap:6px;flex-wrap:wrap">
+    <button class="btn active" data-view="iso">斜视</button>
+    <button class="btn" data-view="top">俯视</button>
+    <button class="btn" data-view="side">侧视</button>
+    <button class="btn" data-view="front">正视</button>
+  </div>
+
+  <div class="divider"></div>
+  <div class="hint">鼠标拖动旋转 · 滚轮缩放 · 右键平移<br>点击控制台按钮切换视角与参数</div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ========== 基础场景 ==========
+const container = document.getElementById('canvas-container');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x12141c);
+scene.fog = new THREE.Fog(0x12141c, 35, 90);
+
+const camera = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 0.1, 500);
+camera.position.set(22, 16, 24);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+container.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.target.set(0, 2, 0);
+controls.minDistance = 8;
+controls.maxDistance = 60;
+controls.maxPolarAngle = Math.PI * 0.49;
+
+// ========== 灯光 ==========
+scene.add(new THREE.HemisphereLight(0x8899bb, 0x222230, 0.55));
+
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.1);
+dirLight.position.set(15, 25, 12);
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.set(2048, 2048);
+dirLight.shadow.camera.left = -25;
+dirLight.shadow.camera.right = 25;
+dirLight.shadow.camera.top = 25;
+dirLight.shadow.camera.bottom = -25;
+dirLight.shadow.bias = -0.0004;
+scene.add(dirLight);
+
+// 工业顶灯（点光源）
+const lampColors = [0xfff0d0, 0xe0e8ff, 0xfff0d0];
+const lampPositions = [[-8, 7, -4], [0, 7, 2], [8, 7, -4]];
+lampPositions.forEach((p, i) => {
+  const pl = new THREE.PointLight(lampColors[i], 0.6, 22, 1.5);
+  pl.position.set(p[0], p[1], p[2]);
+  scene.add(pl);
+});
+
+// ========== 地面 ==========
+function makeFloor() {
+  const g = new THREE.PlaneGeometry(50, 50);
+  // 地面纹理（程序化）
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 512;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#2a2d36'; ctx.fillRect(0, 0, 512, 512);
+  // 格子线
+  ctx.strokeStyle = '#33373f'; ctx.lineWidth = 2;
+  for (let i = 0; i <= 8; i++) {
+    ctx.beginPath(); ctx.moveTo(i*64, 0); ctx.lineTo(i*64, 512); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, i*64); ctx.lineTo(512, i*64); ctx.stroke();
+  }
+  // 安全区黄色边线
+  ctx.strokeStyle = '#d4a017'; ctx.lineWidth = 6;
+  ctx.strokeRect(20, 20, 472, 472);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(4, 4);
+  const m = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.92, metalness: 0.05 });
+  const floor = new THREE.Mesh(g, m);
+  floor.rotation.x = -Math.PI / 2;
+  floor.receiveShadow = true;
+  scene.add(floor);
+
+  // 外围低墙
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0x3a3d46, roughness: 0.9 });
+  const wallGeo = new THREE.BoxGeometry(50, 1.2, 0.4);
+  [-24.8, 24.8].forEach(z => {
+    const w = new THREE.Mesh(wallGeo, wallMat);
+    w.position.set(0, 0.6, z); w.castShadow = true; w.receiveShadow = true;
+    scene.add(w);
+  });
+  const wallGeo2 = new THREE.BoxGeometry(0.4, 1.2, 50);
+  [-24.8, 24.8].forEach(x => {
+    const w = new THREE.Mesh(wallGeo2, wallMat);
+    w.position.set(x, 0.6, 0); w.castShadow = true; w.receiveShadow = true;
+    scene.add(w);
+  });
+}
+makeFloor();
+
+// ========== 设备：CNC 加工机床 ==========
+const machines = [];
+function makeMachine(x, z, label, color) {
+  const group = new THREE.Group();
+  group.position.set(x, 0, z);
+
+  // 底座
+  const base = new THREE.Mesh(
+    new THREE.BoxGeometry(4, 1.6, 3.2),
+    new THREE.MeshStandardMaterial({ color: 0x4a4f5a, roughness: 0.7, metalness: 0.3 })
+  );
+  base.position.y = 0.8; base.castShadow = true; base.receiveShadow = true;
+  group.add(base);
+
+  // 主体
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(3.6, 2.4, 2.8),
+    new THREE.MeshStandardMaterial({ color: color, roughness: 0.55, metalness: 0.35 })
+  );
+  body.position.y = 2.8; body.castShadow = true;
+  group.add(body);
+
+  // 顶盖
+  const top = new THREE.Mesh(
+    new THREE.BoxGeometry(3.8, 0.4, 3),
+    new THREE.MeshStandardMaterial({ color: 0x2a2d36, roughness: 0.6 })
+  );
+  top.position.y = 4.2; top.castShadow = true;
+  group.add(top);
+
+  // 屏幕（发光）
+  const screen = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.1, 0.7),
+    new THREE.MeshBasicMaterial({ color: 0x22d3ee })
+  );
+  screen.position.set(0, 2.9, 1.41);
+  group.add(screen);
+
+  // 状态灯（闪烁）
+  const lampMat = new THREE.MeshBasicMaterial({ color: 0x34d399 });
+  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 16), lampMat);
+  lamp.position.set(1.6, 3.9, 1.3);
+  group.add(lamp);
+
+  // 加工舱门（可动）
+  const door = new THREE.Mesh(
+    new THREE.BoxGeometry(2.6, 1.8, 0.1),
+    new THREE.MeshStandardMaterial({ color: 0x1a1d24, roughness: 0.3, metalness: 0.6, transparent: true, opacity: 0.75 })
+  );
+  door.position.set(0, 2.4, 1.42);
+  group.add(door);
+
+  scene.add(group);
+  machines.push({ group, lamp, door, screen, label, basePos: new THREE.Vector3(x, 0, z) });
+  return group;
+}
+
+makeMachine(-9, -7, '上料工位', 0x3b5bdb);
+makeMachine(-3, -7, '加工工位A', 0x2f9e44);
+makeMachine(3, -7, '加工工位B', 0x9c36b5);
+makeMachine(9, -7, '检测工位', 0xe8590c);
+
+// ========== 机械臂 ==========
+const arms = [];
+function makeRoboticArm(x, z) {
+  const group = new THREE.Group();
+  group.position.set(x, 1.6, z);
+
+  const metalMat = new THREE.MeshStandardMaterial({ color: 0xe0e2e6, roughness: 0.35, metalness: 0.7 });
+  const jointMat = new THREE.MeshStandardMaterial({ color: 0x6366f1, roughness: 0.4, metalness: 0.5 });
+
+  // 底座
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.85, 0.4, 24), jointMat);
+  base.castShadow = true; group.add(base);
+
+  // 旋转底座（这是会转动的部分）
+  const turret = new THREE.Group();
+  group.add(turret);
+
+  const turretMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.5, 0.6, 20), metalMat);
+  turretMesh.position.y = 0.5; turretMesh.castShadow = true; turret.add(turretMesh);
+
+  // 大臂
+  const armPivot = new THREE.Group();
+  armPivot.position.set(0, 0.8, 0);
+  turret.add(armPivot);
+
+  const upperArm = new THREE.Mesh(new THREE.BoxGeometry(0.35, 2.2, 0.35), metalMat);
+  upperArm.position.y = 1.1; upperArm.castShadow = true; armPivot.add(upperArm);
+
+  const elbow = new THREE.Mesh(new THREE.SphereGeometry(0.28, 16, 16), jointMat);
+  elbow.position.y = 2.2; armPivot.add(elbow);
+
+  // 小臂
+  const forearmPivot = new THREE.Group();
+  forearmPivot.position.set(0, 2.2, 0);
+  armPivot.add(forearmPivot);
+
+  const forearm = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.8, 0.3), metalMat);
+  forearm.position.y = 0.9; forearm.castShadow = true; forearmPivot.add(forearm);
+
+  // 夹爪
+  const wrist = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.3, 16), jointMat);
+  wrist.position.y = 1.95; forearmPivot.add(wrist);
+
+  const gripperGeo = new THREE.BoxGeometry(0.12, 0.5, 0.22);
+  const gripper1 = new THREE.Mesh(gripperGeo, metalMat);
+  gripper1.position.set(-0.16, 2.3, 0); forearmPivot.add(gripper1);
+  const gripper2 = new THREE.Mesh(gripperGeo, metalMat);
+  gripper2.position.set(0.16, 2.3, 0); forearmPivot.add(gripper2);
+
+  scene.add(group);
+  const arm = { group, turret, armPivot, forearmPivot, gripper1, gripper2, phase: Math.random() * Math.PI * 2 };
+  arms.push(arm);
+  return arm;
+}
+
+makeRoboticArm(-9, -3);
+makeRoboticArm(9, -3);
+
+// ========== 传送带 ==========
+const beltGroup = new THREE.Group();
+scene.add(beltGroup);
+
+// 传送带主体
+const beltLength = 20;
+const beltMat = new THREE.MeshStandardMaterial({ color: 0x1a1d24, roughness: 0.8, metalness: 0.2 });
+const beltFrameMat = new THREE.MeshStandardMaterial({ color: 0x5a5f6a, roughness: 0.5, metalness: 0.4 });
+
+const beltSurface = new THREE.Mesh(new THREE.BoxGeometry(beltLength, 0.15, 1.6), beltMat);
+beltSurface.position.set(0, 0.55, 1.5);
+beltSurface.receiveShadow = true;
+beltGroup.add(beltSurface);
+
+// 传送带两侧框架
+[-0.85, 0.85].forEach(oz => {
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(beltLength, 0.3, 0.12), beltFrameMat);
+  frame.position.set(0, 0.5, 1.5 + oz);
+  frame.castShadow = true;
+  beltGroup.add(frame);
+});
+
+// 滚筒
+[-beltLength/2, beltLength/2].forEach(x => {
+  const roller = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 1.7, 20), beltFrameMat);
+  roller.rotation.z = Math.PI / 2;
+  roller.position.set(x, 0.55, 1.5);
+  beltGroup.add(roller);
+});
+
+// 传送带表面纹理动画用条纹
+const beltCanvas = document.createElement('canvas');
+beltCanvas.width = 256; beltCanvas.height = 64;
+const bctx = beltCanvas.getContext('2d');
+bctx.fillStyle = '#1a1d24'; bctx.fillRect(0, 0, 256, 64);
+for (let i = 0; i < 8; i++) {
+  bctx.fillStyle = i % 2 ? '#22262e' : '#1a1d24';
+  bctx.fillRect(i * 32, 0, 32, 64);
+}
+const beltTex = new THREE.CanvasTexture(beltCanvas);
+beltTex.wrapS = THREE.RepeatWrapping;
+beltTex.repeat.x = 8;
+beltSurface.material.map = beltTex;
+
+// 传送带上的产品（流动的小盒子）
+const products = [];
+const productColors = [0xfab005, 0x40c057, 0xfa5252, 0x4dabf7, 0x9775fa];
+function spawnProduct() {
+  const color = productColors[Math.floor(Math.random() * productColors.length)];
+  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.1 });
+  const box = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.5, 0.6), mat);
+  box.position.set(-beltLength / 2 + 0.5, 0.95, 1.5 + (Math.random() - 0.5) * 0.8);
+  box.rotation.y = Math.random() * Math.PI;
+  box.castShadow = true;
+  scene.add(box);
+  products.push(box);
+  updateProductCount();
+}
+function updateProductCount() {
+  document.getElementById('s-products').textContent = products.length;
+}
+
+// ========== 货架 / 料箱区 ==========
+function makeShelf(x, z) {
+  const group = new THREE.Group();
+  group.position.set(x, 0, z);
+  const shelfMat = new THREE.MeshStandardMaterial({ color: 0x6a4f3a, roughness: 0.8 });
+  const legMat = new THREE.MeshStandardMaterial({ color: 0x3a3d46, roughness: 0.6 });
+  for (let layer = 0; layer < 3; layer++) {
+    const shelf = new THREE.Mesh(new THREE.BoxGeometry(3, 0.12, 1.2), shelfMat);
+    shelf.position.y = 0.3 + layer * 1.1; shelf.castShadow = true; shelf.receiveShadow = true;
+    group.add(shelf);
+  }
+  // 四条腿
+  [[-1.4, -0.5], [1.4, -0.5], [-1.4, 0.5], [1.4, 0.5]].forEach(p => {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.14, 3.5, 0.14), legMat);
+    leg.position.set(p[0], 1.75, p[1]); leg.castShadow = true;
+    group.add(leg);
+  });
+  // 料箱
+  const binColors = [0xfab005, 0x40c057, 0x4dabf7];
+  for (let layer = 0; layer < 3; layer++) {
+    for (let i = 0; i < 3; i++) {
+      if (Math.random() > 0.35) {
+        const bin = new THREE.Mesh(
+          new THREE.BoxGeometry(0.7, 0.6, 0.9),
+          new THREE.MeshStandardMaterial({ color: binColors[i], roughness: 0.6 })
+        );
+        bin.position.set(-0.9 + i * 0.9, 0.55 + layer * 1.1, 0);
+        bin.castShadow = true;
+        group.add(bin);
+      }
+    }
+  }
+  scene.add(group);
+}
+makeShelf(-15, 8);
+makeShelf(15, 8);
+
+// ========== 安全护栏 ==========
+function makeRail(x1, z1, x2, z2) {
+  const len = Math.hypot(x2 - x1, z2 - z1);
+  const rail = new THREE.Mesh(
+    new THREE.BoxGeometry(len, 0.06, 0.06),
+    new THREE.MeshStandardMaterial({ color: 0xd4a017, roughness: 0.4, metalness: 0.5 })
+  );
+  rail.position.set((x1+x2)/2, 0.9, (z1+z2)/2);
+  rail.rotation.y = -Math.atan2(z2-z1, x2-x1);
+  scene.add(rail);
+  // 立柱
+  [[x1,z1],[x2,z2]].forEach(p => {
+    const post = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.05, 0.05, 0.9, 8),
+      new THREE.MeshStandardMaterial({ color: 0x2a2d36, roughness: 0.6 })
+    );
+    post.position.set(p[0], 0.45, p[1]);
+    scene.add(post);
+  });
+}
+makeRail(-13, 5, 13, 5);   // 中部安全线
+makeRail(-13, 11, -13, 5); // 货架区
+makeRail(13, 11, 13, 5);
+
+// ========== 工位标签（HTML 覆盖层）==========
+const labelsLayer = document.getElementById('labels-layer');
+const labelData = [
+  { pos: new THREE.Vector3(-9, 5, -7), num: '01', text: '上料工位' },
+  { pos: new THREE.Vector3(-3, 5, -7), num: '02', text: '加工工位A' },
+  { pos: new THREE.Vector3(3, 5, -7), num: '03', text: '加工工位B' },
+  { pos: new THREE.Vector3(9, 5, -7), num: '04', text: '检测工位' },
+  { pos: new THREE.Vector3(0, 5, 1.5), num: '05', text: '传送带' },
+  { pos: new THREE.Vector3(-15, 4.5, 8), num: '06', text: '成品料架' },
+];
+const labels = labelData.map(d => {
+  const el = document.createElement('div');
+  el.className = 'station-label';
+  el.innerHTML = `<span class="num">${d.num}</span>${d.text}`;
+  labelsLayer.appendChild(el);
+  return { el, pos: d.pos };
+});
+
+// ========== 状态 ==========
+let running = true;
+let speedMul = 1;
+let cycleTime = 2.0;
+const clock = new THREE.Clock();
+let elapsed = 0;
+let productSpawnTimer = 0;
+let frameCount = 0, fpsTime = 0;
+
+// ========== 视角预设 ==========
+const views = {
+  iso:   { pos: [22, 16, 24], target: [0, 2, 0] },
+  top:   { pos: [0, 38, 0.1], target: [0, 0, 0] },
+  side:  { pos: [0, 6, 32], target: [0, 2, 0] },
+  front: { pos: [32, 7, 0], target: [0, 2, 0] },
+};
+let camAnim = null;
+function setView(name) {
+  const v = views[name];
+  if (!v) return;
+  camAnim = {
+    fromPos: camera.position.clone(),
+    toPos: new THREE.Vector3(...v.pos),
+    fromTar: controls.target.clone(),
+    toTar: new THREE.Vector3(...v.target),
+    t: 0, dur: 1.0
+  };
+}
+
+// ========== UI 绑定 ==========
+const btnPlay = document.getElementById('btn-play');
+btnPlay.addEventListener('click', () => {
+  running = !running;
+  btnPlay.textContent = running ? '⏸ 暂停仿真' : '▶ 开始仿真';
+  btnPlay.classList.toggle('running', running);
+  if (running) clock.start();
+});
+
+document.getElementById('speed').addEventListener('input', e => {
+  speedMul = parseFloat(e.target.value);
+  document.getElementById('speed-val').textContent = speedMul.toFixed(1) + 'x';
+});
+document.getElementById('cycle').addEventListener('input', e => {
+  cycleTime = parseFloat(e.target.value);
+  document.getElementById('cycle-val').textContent = cycleTime.toFixed(1) + 's';
+  document.getElementById('s-cycle').textContent = cycleTime.toFixed(1) + 's';
+});
+
+document.querySelectorAll('[data-view]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('[data-view]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    setView(btn.dataset.view);
+  });
+});
+
+// ========== 动画循环 ==========
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = clock.getDelta();
+
+  if (running) {
+    elapsed += dt * speedMul;
+
+    // 传送带纹理滚动
+    beltTex.offset.x -= dt * speedMul * 0.6;
+
+    // 产品流动
+    const beltSpeed = (6 / cycleTime) * speedMul; // 单位/秒
+    for (let i = products.length - 1; i >= 0; i--) {
+      products[i].position.x += dt * beltSpeed;
+      if (products[i].position.x > beltLength / 2 - 0.3) {
+        scene.remove(products[i]);
+        products[i].geometry.dispose();
+        products[i].material.dispose();
+        products.splice(i, 1);
+        updateProductCount();
+      }
+    }
+
+    // 按节拍生成产品
+    productSpawnTimer += dt * speedMul;
+    if (productSpawnTimer >= cycleTime) {
+      productSpawnTimer = 0;
+      if (products.length < 12) spawnProduct();
+    }
+
+    // 机械臂动画
+    arms.forEach(arm => {
+      const t = elapsed + arm.phase;
+      arm.turret.rotation.y = Math.sin(t * 0.8) * 1.2;
+      arm.armPivot.rotation.z = Math.sin(t * 0.9) * 0.5 - 0.3;
+      arm.forearmPivot.rotation.z = Math.sin(t * 1.1 + 1) * 0.7 + 0.4;
+      // 夹爪开合
+      const grip = (Math.sin(t * 2) * 0.5 + 0.5) * 0.12;
+      arm.gripper1.position.x = -0.16 - grip;
+      arm.gripper2.position.x = 0.16 + grip;
+    });
+
+    // 机床状态灯闪烁 + 舱门开合
+    machines.forEach((m, i) => {
+      const ph = elapsed * 2 + i * 0.7;
+      const blink = (Math.sin(ph) * 0.5 + 0.5);
+      m.lamp.material.color.setRGB(0.2 + blink * 0.6, 0.83, 0.4 + blink * 0.2);
+      // 舱门周期开合
+      const doorPhase = (Math.sin(elapsed * 1.2 + i) * 0.5 + 0.5);
+      m.door.position.y = 2.4 - doorPhase * 0.7;
+      m.door.material.opacity = 0.75 - doorPhase * 0.3;
+      // 屏幕色变化
+      const sc = 0.13 + blink * 0.05;
+      m.screen.material.color.setRGB(0.13, 0.82 + blink * 0.05, 0.93);
+    });
+  }
+
+  // 相机动画过渡
+  if (camAnim) {
+    camAnim.t += dt;
+    let k = Math.min(camAnim.t / camAnim.dur, 1);
+    k = k < 0.5 ? 2*k*k : 1 - Math.pow(-2*k+2, 2)/2; // easeInOutQuad
+    camera.position.lerpVectors(camAnim.fromPos, camAnim.toPos, k);
+    controls.target.lerpVectors(camAnim.fromTar, camAnim.toTar, k);
+    if (k >= 1) camAnim = null;
+  }
+
+  controls.update();
+
+  // 更新 HTML 标签位置
+  labels.forEach(l => {
+    const v = l.pos.clone().project(camera);
+    const x = (v.x * 0.5 + 0.5) * window.innerWidth;
+    const y = (-v.y * 0.5 + 0.5) * window.innerHeight;
+    const visible = v.z < 1;
+    l.el.style.left = x + 'px';
+    l.el.style.top = y + 'px';
+    l.el.style.opacity = visible ? '1' : '0';
+  });
+
+  // FPS
+  frameCount++;
+  fpsTime += dt;
+  if (fpsTime >= 0.5) {
+    document.getElementById('s-fps').textContent = Math.round(frameCount / fpsTime);
+    frameCount = 0; fpsTime = 0;
+  }
+
+  renderer.render(scene, camera);
+}
+
+// ========== 窗口自适应 ==========
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ========== 启动 ==========
+// 预生成几个产品
+for (let i = 0; i < 4; i++) {
+  setTimeout(() => spawnProduct(), i * 300);
+}
+
+animate();
+
+// 隐藏 loader
+setTimeout(() => {
+  const loader = document.getElementById('loader');
+  loader.style.opacity = '0';
+  setTimeout(() => loader.style.display = 'none', 600);
+}, 800);
+</script>
+
+</body>
+</html>
